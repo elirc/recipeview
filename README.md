@@ -72,3 +72,7 @@ Deleting a dish cascades to its recipes, their cook logs, and photos (rows via `
 ## Out of scope for v1
 
 Meal planning, grocery lists, nutrition data, multi-user accounts, sharing.
+
+## Junior SWE learning course
+
+[Start the detailed Astra upskilling course](astraupskill/README.md): parent-child CRUD, partial edits and SQLite transactions, with a codebase map, worked implementation, executable examples, debugging labs, exercises and solution discussions.
