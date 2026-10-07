@@ -4,55 +4,70 @@
 
 ## Run the checks
 
-Use Node.js 22.16 or newer compatible with node:sqlite, and npm. From this project root:
+Use a Node version that ships `node:sqlite` (the delivery evidence used Node 22.16.0) and npm. From the project root:
 
 ```powershell
 npm install
-npm run dev
-```
-
-Open the Vite URL printed by the project. The API uses SQLite and creates its data directory when started; no PostgreSQL server is needed. RECIPE_LAB_DATA can point to a separate learning directory if you want another dataset. Keep the API and client running.
-
-```powershell
 npm test
+npm run typecheck
 npm run build
 ```
 
-The regression suite assigns RECIPE_LAB_DATA to a fresh temporary directory before importing the database, runs the actual Express API through HTTP and removes only that temporary directory after closing SQLite. Existing recipe databases and photos are not fixtures.
+`npm test` runs `tsx --test test/*.test.ts`. See the course [README](README.md#toolchain) for the Windows glob caveat and the shell-independent `npx tsx --test test/recipes.test.ts`.
 
-Read server/db.ts for DatabaseSync and tx. The relational database and search index commit together, while photo files have their own lifecycle. Read test/recipes.test.ts for a temporary-database example. The delivery evidence uses Node 22.16.0; this app depends on node:sqlite.
-## What the test suite proves
+## How the suite isolates itself
 
-Read [test/recipes.test.ts](../test/recipes.test.ts). The suite targets **parent-child CRUD, partial edits and SQLite transactions** and uses the worked fixture:
+Read `test/recipes.test.ts:12-29`:
 
-Create Pasta with a Weeknight recipe, one ingredient and one step. PATCH only title: both child lists remain. Send title Changed with a negative ingredient quantity: return 400 and preserve parent, children and search data. Deleting the dish cascades its recipes and removes their search entries.
+1. `mkdtemp` creates a fresh directory (`:13`).
+2. `process.env.RECIPE_LAB_DATA` is set **before** `server/db.ts` is imported (`:14-15`). This order is load-bearing: `db.ts` opens the database at module load (`server/db.ts:12-15`). Import first and you write to your real `data/` folder.
+3. `server/index.ts` is imported for its exported `app` (`:16`). Because of the guard at `server/index.ts:596-599`, importing does not start a listener on 5274; the test calls `app.listen(0, "127.0.0.1")` for a random free port (`:17-19`).
+4. `after` closes the server, closes the database handle, then removes only the temporary directory (`:21-29`). Closing SQLite before `rm` matters on Windows, where an open file cannot be deleted.
 
-The expectation should not be copied from the function being tested. Hand-calculate counts, amounts, identities or elapsed time first. Otherwise the same mistake can appear in both implementation and expected result. Tests that exercise only a mocked dependency prove a narrower contract than tests against the real dependency; read the helper to understand which kind you are running.
+The suite is therefore a real HTTP → Express → SQLite integration test. Nothing is mocked.
 
-This project runs its real Express app through HTTP against a fresh SQLite database in a temporary directory (`RECIPE_LAB_DATA` is set before `server/db.ts` is imported, because the module opens the database at load time). The suite removes only that directory afterwards. Browser checks exercise the built client separately; read the project verification page for the exact observed checks and limits.
+## What the suite proves — and what it does not
+
+Proven (see the annotated table in chapter 3): partial PATCH preserves children; five classes of invalid PATCH write nothing; dish delete cascades and sweeps FTS rows; non-canonical ids are 400 and padded ids resolve.
+
+Not covered by any test today (each is a place a regression could land unnoticed):
+
+| Untested area | Code |
+| --- | --- |
+| Cook-log create/edit/delete, rating clamps, `cooked_on` fallback | `server/index.ts:381-493` |
+| Photo upload, MIME filter, file cleanup on delete | `server/index.ts:497-566` |
+| Search query building and ranking | `server/queries.ts:175-227` |
+| Dish list sorting and tag filtering | `server/queries.ts:126-155` |
+| "Best cook" selection and stats rollups | `server/queries.ts:7-30`, `:51-80` |
+| Quantity parsing/formatting | `shared/quantity.ts` (no test file) |
+| Any React component | `src/` (no client test runner is configured in `package.json`) |
+| Recipe delete (only dish delete is tested) | `server/index.ts:354-377` |
+
+`shared/quantity.ts` is the cheapest gap to close: it is pure, and its doc comments list the cases it claims to handle (`:26-28`: `"2"`, `"1.5"`, `"1 1/2"`, `"3/4"`, `"1½"`, `"½"`, `"2-3"`). Each is a one-line assertion.
 
 ## Debugging workflow
 
-1. Reproduce the smallest failing case with the exact input saved in your notes.
-2. Inspect the relevant event/request. Confirm the intended handler actually ran.
-3. Pause at `validatePayload` and inspect input types as well as values.
-4. Follow validation branches, noting whether any state or persistence changed before rejection.
-5. Inspect the write result and the subsequent render/response. Separate storage correctness from display correctness.
-6. Add a regression reproducing the failure, make the smallest justified fix, then run the focused suite and relevant broader checks.
-
-Avoid changing several layers at once when you do not yet know where the failure starts. A correct backend with a stale UI needs a different fix from a malformed query or an invalid saved document.
+1. **Start at the server terminal.** A 500 always prints the real error there first (`server/index.ts:97`). The browser only ever sees `Request failed`.
+2. Reproduce the smallest failing request with `curl` or a test, not the UI. Save the exact body in your notes.
+3. Decide which layer rejected it. A 400 with a specific message came from `h()`/`validatePayload` or a handler's own guard (search for the message text). A 404 came from a handler's existence check. A 500 came from SQLite or a bug.
+4. Put a breakpoint (or a temporary `console.log`) at `validatePayload` (`:602`) and inspect *types* as well as values — `"2"` and `2` look the same in a log line but take different branches at `:631`.
+5. After a write, read the authoritative state: `GET` the resource, and for search problems query the FTS table directly, e.g. `SELECT kind, ref_id, title FROM search_index WHERE ref_id = ?` with the `sqlite3` CLI against `data/recipe-lab.db` (or your `RECIPE_LAB_DATA` directory).
+6. Add a regression test that fails, make the smallest fix, re-run.
 
 ## Failure experiments
 
-- Reuse the invalid fixture from the tests and verify no unintended records or fields change.
-- Reload or restart after a successful operation to distinguish persistence from temporary screen state.
-- Repeat the operation and explain whether it should be idempotent, rejected or intentionally create another record.
-- Simulate the relevant timing or storage failure only in a disposable fixture. Restore normal behavior after the experiment.
+**Goal:** prove the transaction boundary. **Check:** with a temporary `throw` added at the end of `reindexRecipe` (`server/db.ts:55-82`), a recipe title PATCH returns 500 and a subsequent `GET /api/recipes/:id` still shows the old title and the old ingredient list. Remove the throw afterwards.
+
+**Goal:** observe normalisation instead of rejection. **Check:** `POST /api/recipes/:id/logs` with `{ "cooked_on": "2026-13-45", "rating_taste": 9, "changes": 42 }` returns **201** (not 400) with `cooked_on` equal to today's UTC date, `rating_taste` 5 and `changes` `""` — matching `server/index.ts:394`, `:49-53` and `:41-42`.
+
+**Goal:** observe a delete of a missing id. **Check:** `DELETE /api/recipes/999999` returns 204 even though no such recipe exists (`server/index.ts:354-377` has no existence check). Decide whether that is acceptable idempotency or a hidden typo.
+
+**Goal:** observe an orphaned upload. **Check:** `POST /api/logs/999999/photos` with one JPEG returns 404, yet a new file appears in `<RECIPE_LAB_DATA>/photos` — multer's middleware (`:522`) runs before the handler's existence check (`:525-527`).
 
 ## Reading an assertion failure
 
-“Expected 3, received 4” is evidence about one observation, not a complete diagnosis. Ask whether the fixture created an extra record, the operation ran twice, an old record survived, or the assertion looked at an unfiltered collection. Start from the state table and trace the first point where the actual value diverges. A stack trace identifies where the program noticed a problem, which may be later than the code that caused it.
+`Expected 3, received 4` is evidence about one observation, not a diagnosis. Ask whether the fixture created an extra record, the operation ran twice, an old record survived, or the assertion read an unfiltered collection. Because these tests share state through module variables (`test/recipes.test.ts:6-11`), a failure in test 1 will cascade into tests 2 and 3; fix the first failure first.
 
 ## Verification record
 
-The companion [VERIFICATION.md](VERIFICATION.md) records checks actually run for this implementation. Record your own command, date, result and any environmental prerequisite when practicing. A passing test does not imply every route, browser, dependency version or production deployment has been exercised.
+[VERIFICATION.md](VERIFICATION.md) records the checks run when this course was delivered. Record your own command, date and result when practising. A passing suite does not cover the untested areas listed above.

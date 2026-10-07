@@ -66,6 +66,18 @@ npx tsx --test test/recipes.test.ts
 
 Keep a short learning log with four fields: prediction, observed result, explanation and next question. A mismatch is useful evidence: find the exact layer where your mental model diverged from the program. Use a disposable browser profile or local test database for failure experiments so your own records are not part of the fixture.
 
+## What each chapter gives you
+
+| Chapter | You leave with |
+| --- | --- |
+| 01 | A file-by-file map of the 4-file server and a seven-step trace of a recipe rename |
+| 02 | The omit/empty/replace contract for children, `tx()` semantics, FTS denormalisation, validation-vs-normalisation table |
+| 03 | The current `h()` source annotated line by line, the four tests annotated, and a `qty`-vs-`quantity` trap |
+| 04 | How the suite isolates itself, a table of untested code, and four failure experiments with observable Checks |
+| 05 | Ten exercises, each with a Goal and an observable Check, several fixing real findings |
+| 06 | Solution sketches and an eleven-row senior review with file:line references |
+| 07 | A boundary-by-boundary trace using the test requests |
+
 ## Scope
 
 A shared request boundary rejects malformed nested values and noncanonical IDs before handlers mutate rows. Recipe edits retain omitted children; valid replacements and search reindexing remain transactional. The app can be imported without binding a development port. This is one bounded improvement, not certification of every feature. Read VERIFICATION.md for checks actually executed. Exercises are intentionally future practice; do not confuse them with completed implementation.

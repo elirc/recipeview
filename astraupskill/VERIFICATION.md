@@ -57,4 +57,8 @@ These are focused learning improvements, not a production-readiness certificatio
 
 Delivery hashes and local course links are checked after applying the files. Logs, screenshots, diffs and backups are in AstraOrganized2/astrafinalplan/implementation/batch04. The combined report is AstraOrganized2/astrdocs/ALL_75_PROJECTS_REPORT.md.
 
+## Documentation refresh (October 2026)
+
+The course chapters were later revised to correct drift against the source (wrong line numbers, a `quantity` vs `qty` field name in chapter 3, a reference to non-existent `updateRecipe`/`updateDish` functions in `queries.ts`) and to add file:line walkthroughs, Goal/Check exercises and a senior-review findings table. That revision was a read-only pass: it re-read the source but did **not** re-run `npm test`, the build or the browser check. The table above remains the September 8 evidence. Coverage gaps the revision identified (cook logs, photos, search, quantity parsing have no tests) are listed in chapter 4.
+
 Note on error messages: non-`InputError` failures are answered as a generic 500 `Request failed`; the underlying error is printed by `fail()` in `server/index.ts` on the server terminal. Read the terminal when a test or the UI reports `Request failed`.
